@@ -6,9 +6,9 @@
 This project aims to create a data visualization tool that suggests the creation of LEGO sets inspired by Japanese anime stories and characters. The goal is to combine Big Data Analytics and Data Visualization to identify trends and creative ideas that can be used to design new themed LEGO sets.
 
 ## Group members
-- Simone Caglio (s.caglio1@campus.unimib.it)
-- Marco Manduca (m.manduca@campus.unimib.it)
-- Corona Rosas Torres (c.rosastorres@campus.unimib.it)
+- [Simone Caglio](mailto:s.caglio1@campus.unimib.it)
+- [Marco Manduca](mailto:m.manduca@campus.unimib.it)
+- [Corona Rosas Torres](mailto:c.rosastorres@campus.unimib.it)
 
 ## Project Structure
 - Notebook: folder with Jupyter notebooks used for the ETL phase
