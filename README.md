@@ -1,5 +1,5 @@
 # Master BIBDA
-Master in Business Intelligence &amp; Big Data Analytics (2023-2024) at university of Milano-Bicocca.  
+Master in [Business Intelligence &amp; Big Data Analytics](https://academy.unimib.it/business-intelligence-e-big-data-analytics) (2023-2024) at university of Milano-Bicocca.  
 Repository to manage and share exercise, homeworks and group projects.
 
 ## Repo structure
