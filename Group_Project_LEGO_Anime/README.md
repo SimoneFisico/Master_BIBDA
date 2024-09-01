@@ -13,9 +13,9 @@ This project aims to create a data visualization tool that suggests the creation
 ## Project Structure
 - Notebook: folder with Jupyter notebooks used for the ETL phase
 - PDF: folder with project related documents
-  - [Laboratory requirements](./PDF)
+  - [Laboratory requirements](./PDF/Big Data Laboratory.pdf)
   - [Project proposal](./PDF/Proposal_Caglio_Manduca_Rosas.pdf)
-  - [Keynote project presentation](./PDF)
+  - [Keynote project presentation](./PDF/Presentazione_Caglio_Manduca_RosasTorres.pdf)
 
 ## Tech Spec
 ### Language
