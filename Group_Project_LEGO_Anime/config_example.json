@@ -1,0 +1,11 @@
+{
+    "MyAnimeList": {
+        "client_id": ""
+    },
+    "MongoDB" : {
+        "username" : "",
+        "password" : "",
+        "database" : "",
+        "cluster" : ""
+    }
+}
