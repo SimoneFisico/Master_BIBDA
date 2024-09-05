@@ -1,0 +1,709 @@
+-- Replacement for error in encoding
+-- SQL dump has some characters encoded with Windows1252 even though it is declared Unicode (UTF-8)
+-- can be replaced either with a text editor or with an SQL command
+\000002C --> ,
+\000002D --> -
+\000002E --> .
+\000003A --> :
+\000005F --> _
+
+
+
+
+-- Extract event type from data field
+update ivv_analytics as tg
+set event_type = (select split_part( "ivv_analytics"."data", ' ', 1 ) from ivv_analytics where tg.player_id = player_id
+    and tg.session_id = session_id
+    and tg.log_id = log_id)
+
+
+-- List of unique event_type
+select DISTINCT event_type
+from ivv_analytics
+
+/* ** RESULTS **
+-- all has specific fileds at the end of log (data field)
+-- these have real_time and game_time common fields
+BeginLog
+EndLog
+MenuClose
+MenuOpen
+InitialKnownPhrases
+InitialJournal
+InitialSpellLanguage
+SpellLanguageChange
+-- these have real_time, game_time, position, rotation and velocity common fields
+InitialPosition
+Heartbeat
+Jump
+AddKnownPhrase
+SpellEndInteraction
+CastAbort
+Recognition
+UseAction
+PawnDied
+JournalAddAnnotation
+JournalAddDocument
+JournalAddSpell
+JournalPlayPronunciation
+JournalReadAnnotation
+JournalReadDocument
+JournalReadSpell
+*/
+    
+-- Create staging table with specific log columns
+-- session_id, log_id, player_id and event_type will be copied from ivv_analytics table
+
+CREATE TABLE "public"."stg_ivv_analytics" ( 
+	"session_id" Integer NOT NULL,
+	"log_id" Integer NOT NULL,
+	"player_id" Character Varying( 20 ) NOT NULL,
+	"game_time" Double Precision,
+	"real_time" Double Precision,
+	"success" Double Precision,
+	"map_info" Character Varying( 100 ),
+	"menu_item" Character Varying( 100 ),
+	"ret" Character Varying( 100 ),
+	"language" Character Varying( 100 ),
+	"words" Character Varying( 1000 ),
+	"position" Character Varying( 100 ),
+	"rotation" Character Varying( 100 ),
+	"velocity" Character Varying( 100 ),
+	"spell" Character Varying( 100 ),
+	"reco_time" Double Precision,
+	"player_pawn" Double Precision,
+	"killer" Character Varying( 100 ),
+	"damage_type" Character Varying( 100 ),
+	"hit_location" Character Varying( 100 ),
+	"targeted_inscription" Character Varying( 100 ),
+	"health" Integer,
+	"topic_key" Character Varying( 100 ),
+	"silent" Character Varying( 100 ),
+	"date_time" Timestamp Without Time Zone,
+	"event_type" Character Varying( 30 ),
+	PRIMARY KEY ( "player_id", "session_id", "log_id" ) );
+
+
+-- EndLog only has event_type
+/*
+There are only 2 regords of §EnLog type, it is not present for each session, so it is useless and we can delete it
+*/
+delete
+from stg_ivv_analytics
+WHERE event_type = 'EndLog'
+
+-- Update Beginlog event type
+-- String fotmat: event_type date_time map_info
+-- BeginLog 2014-3-14_9-50-25-125 map_prova_vreco
+
+update stg_ivv_analytics
+set date_time = ( select to_timestamp(split_part( ivv_analytics.data, ' ', 2 ), 'YYYY-MM-DD_HH24-MI-SS' )
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    map_info = ( select split_part( ivv_analytics.data, ' ', 3 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)
+WHERE event_type = 'BeginLog'
+
+/*
+ATTENZIONE 
+il record seguente ha un problema di formattazione della data
+0x011000010BD63603, 7, 0, "BeginLog s-687 01_persistent_def", BeginLog
+
+Dato che tutte le sessioni sono nello stesso giorno,
+si potrebbe ipotizzare di far iniziare la sessione 7 un numero di minuti pari o di poco superiore 
+alla lunghezza della sessione 6
+inizio sessione 6 - 0x011000010BD63603, 6, 0, "BeginLog 2021-1-14_23-32-38-338 main_menu", BeginLog
+fine sessione 6 - 0x011000010BD63603, 6, 7, "Heartbeat 5.5756 5.0296 -20723.11,15614.09,-540.41 0,-3244,0 0.00,0.00,0.00 100", Heartbeat
+quindi
+0x011000010BD63603, 7, 0, "BeginLog 2021-1-14_23-32-45-000 01_persistent_def", BeginLog
+*/
+
+
+-- Update Menu event type
+-- String fotmat: event_type real_time game_time menu_item
+-- MenuOpen 415.4424 352.9007 Journal
+-- MenuClose 195.4814 174.3386 Journal
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    menu_item = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)
+WHERE event_type LIKE '%Menu%'
+
+
+-- Update InitialKnownPhrases event type
+-- String fotmat event_type real_time game_time words
+-- InitialKnownPhrases 7.9552 0.2495 VRS_Light,VRS_LightBeam
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    words = ( select nullif(split_part( ivv_analytics.data, ' ', 4 ),'')
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)               
+WHERE event_type = 'InitialKnownPhrases'
+
+
+-- Update InitialJournal event type
+-- String fotmat event_type real_time game_time words
+-- InitialJournal 7.9552 0.2495 Light,False,LightBeam,False Colonne,True Genesis01,False,RetroLight,True
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    words = ( select nullif(trim(replace( replace( replace( "data", split_part( ivv_analytics.data, ' ', 1 ),''), split_part( ivv_analytics.data, ' ', 2 ),''),split_part( ivv_analytics.data, ' ', 3 ),'')),'')
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)               
+WHERE event_type = 'InitialJournal'
+
+
+-- Update SpellLanguage events type
+-- String fotmat: event_type real_time game_time language
+-- InitialSpellLanguage 18.4217 0.4000 mahaki
+-- SpellLanguageChange 204.7954 118.4667 mahaki
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    "language" = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)                
+WHERE event_type LIKE '%SpellLanguage%'
+
+
+-- Update InitialPosition event type
+-- String fotmat event_type real_time game_time position rotation velocity
+-- InitialPosition 6.8056 0.2367 22771.77,3085.72,-2672.39 65313,-65863,-4 0.00,0.00,0.00 
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id) 
+WHERE event_type = 'InitialPosition'
+
+
+-- Update Heartbeat event type
+-- String fotmat event_type real_time game_time position rotation velocity health 
+-- Heartbeat 93.6902 29.0079 6659.09,6988.08,-490.07 63435,38290,-10 -252.93,-256.17,0.00 98
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    health = ( select nullif(split_part( ivv_analytics.data, ' ', 7 ),'')::integer
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)               
+WHERE event_type = 'Heartbeat'
+
+
+-- Update Jump event type
+-- String fotmat event_type real_time game_time position rotation velocity ret(?)
+-- Jump 34.2414 8.2101 2937.49,5583.94,-219.91 63447,-67173,6 134.42,-12.52,400.00 True
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    ret = ( select split_part( ivv_analytics.data, ' ', 7 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)                  
+WHERE event_type = 'Jump'
+
+
+-- Update AddKnownPhrase event type
+-- String fotmat event_type real_time game_time position rotation velocity words
+-- AddKnownPhrase 115.5825 112.0551 24823.23,9206.06,-516.45 1113,25866,9 -19.66,15.30,0.00 VRS_Light
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    words = ( select split_part( ivv_analytics.data, ' ', 7 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)
+WHERE event_type = 'AddKnownPhrase'
+
+
+-- Update SpellEndInteraction events type
+-- String fotmat event_type real_time game_time position rotation velocity spell success
+-- SpellEndInteraction 20.9503 15.9432 25965.46,13025.15,-1736.04 62417,-41102,0 0.00,0.00,0.00 None True
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    spell = ( select split_part( ivv_analytics.data, ' ', 7 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    success = ( select split_part( ivv_analytics.data, ' ', 8 )::boolean
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)                  
+WHERE event_type = 'SpellEndInteraction'
+
+
+-- Update CastAbort event type
+-- String fotmat event_type real_time game_time position rotation velocity spell 
+-- CastAbort 299.9428 275.2786 22938.02,3064.15,-2672.39 10217,97297,0 0.00,0.00,0.00 LightBeamSpell
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    spell = ( select split_part( ivv_analytics.data, ' ', 7 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)
+WHERE event_type = 'CastAbort'
+
+
+-- Update Recognition event type
+-- String fotmat event_type real_time game_time position rotation velocity words spell reco_time
+-- Recognition 1285.7773 1189.8512 21947.48,7036.29,-532.84 62816,-582280,13 221.03,284.15,0.00 VRS_Light None -94.1011
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    words = ( select split_part( ivv_analytics.data, ' ', 7 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    spell = ( select split_part( ivv_analytics.data, ' ', 8 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    reco_time = ( select split_part( ivv_analytics.data, ' ', 9 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)                   
+WHERE event_type = 'Recognition'
+
+
+-- Update UseAction event type
+-- String fotmat event_type real_time game_time position rotation velocity targeted_inscription 
+-- UseAction 101.9798 93.6817 15305.39,6418.84,610.29 6086,-89723,0 -117.25,-136.57,0.00 01_deserto_def.TheWorld:PersistentLevel.IVVInscription_61
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    targeted_inscription = ( select split_part( ivv_analytics.data, ' ', 7 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)               
+WHERE event_type = 'UseAction'
+
+
+-- Update PawnDied event type
+-- String fotmat event_type real_time game_time position rotation velocity player_pawn killer position damage_type hit_location
+-- PawnDied 1186.6987 1065.9465 25919.98,13593.76,-1740.26 0,-156896,0 -167.56,142.84,-632.31 IVVPlayerPawn_6 25919.98,13593.76,-1740.26 IVVPlayerController_6 IVVDmgType_Physical 25919.98,13593.76,-1740.26
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id), 
+	velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    player_pawn = ( select split_part( ivv_analytics.data, ' ', 7 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    killer = ( select split_part( ivv_analytics.data, ' ', 9 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    damage_type = ( select split_part( ivv_analytics.data, ' ', 10 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    hit_location = ( select split_part( ivv_analytics.data, ' ', 11 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)                 
+WHERE event_type = 'PawnDied'
+
+
+-- Update JournalAdd* events type
+-- String fotmat event_type real_time game_time position rotation velocity topic_key silent(?)
+-- JournalAddAnnotation 149.7913 140.9624 15435.23,7552.70,610.29 755,-3917,0 0.00,0.00,0.00 Colonne False
+-- JournalAddDocument 361.4067 271.4174 24633.79,9351.26,-516.45 1261,59295,0 0.00,0.00,0.00 RetroLight False
+-- JournalAddSpell 62.3745 46.0179 24841.92,9204.07,-525.51 1649,25965,0 -23.00,19.29,0.00 Light  False
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    topic_key = ( select nullif(split_part( ivv_analytics.data, ' ', 7 ),'')
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+	silent = ( select nullif(split_part( ivv_analytics.data, ' ', 8 ),'')
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)               
+WHERE event_type like '%JournalAdd%'
+
+-- Update JournalPlayPronunciation event type
+-- String fotmat event_type real_time game_time position rotation velocity topic_key
+-- JournalPlayPronunciation 250.7731 227.9586 25855.34,13175.39,-1733.60 63012,-9330,0 0.00,0.00,0.00 VRS_Light
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    words = ( select nullif(split_part( ivv_analytics.data, ' ', 7 ),'')
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)               
+WHERE event_type = 'JournalPlayPronunciation'
+
+-- Update JournalRead* events type
+-- String fotmat event_type real_time game_time position rotation velocity topic_key 
+-- JournalReadAnnotation 312.3130 214.3280 16653.69,7262.99,630.78 63988,-6058,0 0.00,0.00,0.00 Colonne
+-- JournalReadDocument 521.8475 485.3758 23461.18,11111.90,-1729.09 61205,-41601,0 0.00,0.00,0.00 LimboRitual
+-- JournalReadSpell 522.8806 485.3758 23461.18,11111.90,-1729.09 61205,-41601,0 0.00,0.00,0.00 Light
+
+update stg_ivv_analytics
+set real_time = ( select split_part( ivv_analytics.data, ' ', 2 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    game_time = ( select split_part( ivv_analytics.data, ' ', 3 )::double precision 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    position = ( select split_part( ivv_analytics.data, ' ', 4 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    rotation = ( select split_part( ivv_analytics.data, ' ', 5 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    velocity = ( select split_part( ivv_analytics.data, ' ', 6 ) 
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id),
+    topic_key = ( select nullif(split_part( ivv_analytics.data, ' ', 7 ),'')
+                    from ivv_analytics 
+                    WHERE stg_ivv_analytics.player_id = ivv_analytics.player_id 
+                        and stg_ivv_analytics.session_id = ivv_analytics.session_id
+                        and stg_ivv_analytics.log_id = ivv_analytics.log_id)               
+WHERE event_type like '%JournalRead%'
+
+
+
